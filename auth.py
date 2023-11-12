@@ -1,11 +1,16 @@
 import json
 import os
+from supabase import create_client
 from datetime import datetime
-from supabase_insert import *
 
 import requests
 
-token = 'fae69343fae69343fae6934300f9f0ae6effae6fae693439faa0217340b775d4aa36904'
+url = "https://hgsbnelwjopuhevsglmm.supabase.co"
+key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhnc2JuZWx3am9wdWhldnNnbG1tIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTY5NDc5ODcxNCwiZXhwIjoyMDEwMzc0NzE0fQ.l0LQs2V1serM8JomNcyYOtr5F56MHao0LivqJaJk6zg"
+
+token = 'vk1.a.KOIWBFmXerwYS8GQaDkmXV_jEaNil8Xwx0dEN21xM9FHpOTmyI2t_WQRfcT9WFJzlSPifkkF6_Ew1dZDnOE48qVf5fgBcPniymXnxbmfrkjhrBADmsI_9hZ9tgeript9qBcD_bBMd6DAQ0Dhra1K_2Lkunz-OYsG1SSm9kVJbC3s3sYoUZ-jvnBAmz65N_egpkjhWNR_w1ijyCNED67BOQ'
+
+supabase = create_client(url, key)
 
 
 def get_wall_posts(group_name):
@@ -45,13 +50,10 @@ def get_wall_posts(group_name):
 
             post_text = None
             post_photos = []
-            doc_url = None
-            doc_title = None
-            link_url = None
-            link_title = None
-            audio_url = None
-            audio_artist = None
-            audio_title = None
+            docs = []
+            links = []
+            audios = []
+            videos = []
 
             try:
                 # если пост это репост с другого поста
@@ -60,7 +62,7 @@ def get_wall_posts(group_name):
                     # проверка есть ли текст в посте
                     if 'text' in repost:
                         post_text = repost['text']
-                        # print("Post text:", post_text)
+                        #print("Post text:", post_text)
 
                     #  проверка есть ли прикрепленные файлы в том посте
                     if 'attachments' in repost:
@@ -72,55 +74,83 @@ def get_wall_posts(group_name):
                                         if size['type'] == 'z':  # берём лучшее качество
                                             post_photos.append(size['url'])
                                             # post_photo = size['url']
-                                            # print(post_photos)
                                 else:
                                     sizes = attachment['photo']['sizes']
                                     for size in sizes:
                                         if size['type'] == 'z':  # берём лучшее качество
                                             post_photos.append(size['url'])
                                             # post_photo = size['url']
-                                            # print(post_photos)
 
                             #  проверка есть ли прикрепленные документы
                             elif attachment['type'] == 'doc':
                                 doc_title = attachment['doc']['title']
+                                docs.append(doc_title)
                                 doc_url = attachment['doc']['url']
-                                # print("Doc Title:", doc_title)
-                                # print("Doc URL:", doc_url)
+                                docs.append(doc_url)
 
                             #  проверка есть ли прикреплённые ссылки
                             elif attachment['type'] == 'link':
                                 link_title = attachment['link']['title']
+                                links.append(link_title)
                                 link_url = attachment['link']['url']
-                                # print("Link Title:", link_title)
-                                # print("Link URL:", link_url)
+                                links.append(link_url)
 
                             #  проверка есть ли прикреплённые аудио
                             elif attachment['type'] == 'audio':
                                 audio_artist = attachment['audio']['artist']
+                                audios.append(audio_artist)
                                 audio_title = attachment['audio']['title']
+                                audios.append(audio_title)
                                 audio_url = attachment['audio']['url']
-                                # print("Audio Artist:", audio_artist)
-                                # print("Audio Title:", audio_title)
-                                # print("Audio URL:", audio_url)
-                    sup_insert(
-                        time=post_date,
-                        text_title=post_text,
-                        text=post_text,
-                        image=post_photos,
-                        doc=doc_url,
-                        doc_title=doc_title,
-                        link=link_url,
-                        link_title=link_title,
-                        audio=audio_url,
-                        audio_artist=audio_artist,
-                        audio_title=audio_title
+                                audios.append(audio_url)
+
+                            # проверка есть ли видео в посте
+                            elif attachment['type'] == 'video':
+                                video_access_key = attachment['video']['access_key']
+                                video_post_id = attachment['video']['id']
+                                video_owner_id = attachment['video']['owner_id']
+
+                                video_get_url = f'https://api.vk.com/method/video.get?videos={video_owner_id}_{video_post_id}_{video_access_key}&access_token={token}&v=5.137'
+                                req = requests.get(video_get_url)
+                                res = req.json()
+                                video_title = res['response']['items'][0]['title']
+                                videos.append(video_title)
+                                video_date = res['response']['items'][0]['date']
+                                video_date = datetime.fromtimestamp(video_date)
+                                videos.append(video_date)
+                                video_url = res['response']['items'][0]['player']
+                                videos.append(video_url)
+
+                                for item in res['response']['items'][0]['image']:
+                                    if (item['width'] and item['height']) == (
+                                            res['response']['items'][0]['width'] and res['response']['items'][0][
+                                        'height']):
+                                        video_presplash = item['url']
+                                        videos.append(video_presplash)
+                        # print("Photos:", post_photos)
+                        # print("Docs:", docs)
+                        # print("Links:", links)
+                        # print("Audios:", audios)
+                        # print("Videos:", videos)
+                    table_data = (supabase.table("vkvvguposts")
+                                  .insert(
+                        {"created_at": f"{post_date}",
+                         "title": f"{post_text}",
+                         "text": f"{post_text}",
+                         "image": f"{post_photos}",
+                         "docs": f"{docs}",
+                         "links": f"{links}",
+                         "audios": f"{audios}",
+                         "videos": f"{videos}",
+                         }
                     )
+                                  .execute())
+                    assert len(table_data.data) > 0
                 # если это просто пост
                 else:
                     if 'text' in post:  # проверка есть ли текст в посте
                         post_text = post['text']
-                        # print("Post text:", post_text)
+                        #print("Post text:", post_text)
                     # если это не репост другого поста
                     if 'attachments' in post:  # проверка есть ли какие-либо прикреплённые файлы
                         for attachment in post['attachments']:
@@ -131,50 +161,78 @@ def get_wall_posts(group_name):
                                         if size['type'] == 'z':  # берём лучшее качество
                                             post_photos.append(size['url'])
                                             # post_photo = size['url']
-                                            # print(post_photos)
                                 else:  # если несколько фото
                                     sizes = attachment['photo']['sizes']
                                     for size in sizes:
                                         if size['type'] == 'z':  # берём лучшее качество
                                             post_photos.append(size['url'])
                                             # post_photo = size['url']
-                                            # print(post_photos)
 
                             #  проверка есть ли прикреплённые ссылки
                             elif attachment['type'] == 'doc':
                                 doc_title = attachment['doc']['title']
+                                docs.append(doc_title)
                                 doc_url = attachment['doc']['url']
-                                # print("Doc Title:", doc_title)
-                                # print("Doc URL:", doc_url)
+                                docs.append(doc_url)
 
                             #  проверка есть ли прикреплённые ссылки
                             elif attachment['type'] == 'link':
                                 link_title = attachment['link']['title']
+                                links.append(link_title)
                                 link_url = attachment['link']['url']
-                                # print("Link Title:", link_title)
-                                # print("Link URL:", link_url)
+                                links.append(link_url)
 
                             #  проверка есть ли прикреплённые аудио
                             elif attachment['type'] == 'audio':
                                 audio_artist = attachment['audio']['artist']
+                                audios.append(audio_artist)
                                 audio_title = attachment['audio']['title']
+                                audios.append(audio_title)
                                 audio_url = attachment['audio']['url']
-                                # print("Audio Artist:", audio_artist)
-                                # print("Audio Title:", audio_title)
-                                # print("Audio URL:", audio_url)
-                    sup_insert(
-                        time=post_date,
-                        text_title=post_text,
-                        text=post_text,
-                        image=post_photos,
-                        doc=doc_url,
-                        doc_title=doc_title,
-                        link=link_url,
-                        link_title=link_title,
-                        audio=audio_url,
-                        audio_artist=audio_artist,
-                        audio_title=audio_title
+                                audios.append(audio_url)
+
+                            #  проверка есть ли видео в посте
+                            elif attachment['type'] == 'video':
+                                video_access_key = attachment['video']['access_key']
+                                video_post_id = attachment['video']['id']
+                                video_owner_id = attachment['video']['owner_id']
+
+                                video_get_url = f'https://api.vk.com/method/video.get?videos={video_owner_id}_{video_post_id}_{video_access_key}&access_token={token}&v=5.137'
+                                req = requests.get(video_get_url)
+                                res = req.json()
+                                video_title = res['response']['items'][0]['title']
+                                videos.append(video_title)
+                                video_date = res['response']['items'][0]['date']
+                                video_date = datetime.fromtimestamp(video_date)
+                                videos.append(video_date)
+                                video_url = res['response']['items'][0]['player']
+                                videos.append(video_url)
+
+                                for item in res['response']['items'][0]['image']:
+                                    if (item['width'] and item['height']) == (
+                                            res['response']['items'][0]['width'] and res['response']['items'][0][
+                                        'height']):
+                                        video_presplash = item['url']
+                                        videos.append(video_presplash)
+                        # print("Photos:", post_photos)
+                        # print("Docs:", docs)
+                        # print("Links:", links)
+                        # print("Audios:", audios)
+                        # print("Videos:", videos)
+                    table_data = (supabase.table("vkvvguposts")
+                                  .insert(
+                        {"created_at": f"{post_date}",
+                         "title": f"{post_text}",
+                         "text": f"{post_text}",
+                         "image": f"{post_photos}",
+                         "docs": f"{docs}",
+                         "links": f"{links}",
+                         "audios": f"{audios}",
+                         "videos": f"{videos}",
+                         }
                     )
+                                  .execute())
+                    assert len(table_data.data) > 0
             except Exception:
                 print('Что-то пошло не так.')
     else:
