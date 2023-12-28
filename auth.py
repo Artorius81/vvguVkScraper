@@ -1,21 +1,54 @@
+# -*- coding: utf-8 -*-
 import json
+import asyncio
+from gigachat import GigaChat
+from gigachat.models import Chat, Messages, MessagesRole
 import os
-from supabase import create_client
+from supabase import create_client, Client
 from datetime import datetime
-
 import requests
 
-url = "https://hgsbnelwjopuhevsglmm.supabase.co"
-key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhnc2JuZWx3am9wdWhldnNnbG1tIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTY5NDc5ODcxNCwiZXhwIjoyMDEwMzc0NzE0fQ.l0LQs2V1serM8JomNcyYOtr5F56MHao0LivqJaJk6zg"
+from CONSTANTS import *
 
-token = 'vk1.a.KOIWBFmXerwYS8GQaDkmXV_jEaNil8Xwx0dEN21xM9FHpOTmyI2t_WQRfcT9WFJzlSPifkkF6_Ew1dZDnOE48qVf5fgBcPniymXnxbmfrkjhrBADmsI_9hZ9tgeript9qBcD_bBMd6DAQ0Dhra1K_2Lkunz-OYsG1SSm9kVJbC3s3sYoUZ-jvnBAmz65N_egpkjhWNR_w1ijyCNED67BOQ'
+supabase: Client = create_client(URL, KEY)
 
 
-supabase = create_client(url, key)
+# GIGA
+def giga(text, path, credentials):
+    PAYLOAD = Chat(
+        messages=[
+            Messages(
+                role=MessagesRole.SYSTEM,
+                content="Представь, что ты - копирайтер. Твоя задача вычленить несколько слов из текста (СТРОГО НЕ БОЛЕЕ 8 СЛОВ) и составить из них заголовок, исходя из "
+                        "представленного текста.",
+            ),
+            Messages(
+                role=MessagesRole.ASSISTANT,
+                content="Как я могу помочь вам?",
+            ),
+            Messages(
+                role=MessagesRole.USER,
+                content=f"Вычлени главную информацию и составь привлекательный для аудитории заголовок по тексту. Помни, что заголовок должен быть "
+                        f"СТРОГО НЕ БОЛЬШЕ чем 8 слов. Вот текст: {text}",
+            ),
+        ],
+        update_interval=0.1,
+    )
+
+    async def main() -> object:
+        async with GigaChat(
+                credentials=credentials,
+                ca_bundle_file=path) as giga:
+            async for chunk in giga.astream(PAYLOAD):
+                return chunk.choices[0].delta.content
+
+    if __name__ == '__main__':
+        result = asyncio.run(main())
+        return result
 
 
 def get_wall_posts(group_name):
-    url = f'https://api.vk.com/method/wall.get?domain={group_name}&count=15&access_token={token}&v=5.137'
+    url = f'https://api.vk.com/method/wall.get?domain={group_name}&count=15&access_token={TOKEN}&v=5.137'
     req = requests.get(url)
     src = req.json()
 
@@ -63,6 +96,7 @@ def get_wall_posts(group_name):
             print(f'Дата поста {post_date}\n')
 
             post_text = None
+            post_title = None
             post_photos = []
             docs = []
             links = []
@@ -76,7 +110,9 @@ def get_wall_posts(group_name):
                     # проверка есть ли текст в посте
                     if 'text' in repost:
                         post_text = repost['text']
+                        post_title = giga(post_text, PATH, CREDENTIALS)
                         # print("Post text:", post_text)
+                        # print("Post Title:", post_title)
 
                     #  проверка есть ли прикрепленные файлы в том посте
                     if 'attachments' in repost:
@@ -85,15 +121,13 @@ def get_wall_posts(group_name):
                                 if len(attachment) == 1:
                                     sizes = attachment[0]['photo']['sizes']
                                     for size in sizes:
-                                        if size['type'] == 'z':  # берём лучшее качество
+                                        if size['type'] == 'r':  # берём лучшее качество
                                             post_photos.append(size['url'])
-                                            # post_photo = size['url']
                                 else:
                                     sizes = attachment['photo']['sizes']
                                     for size in sizes:
-                                        if size['type'] == 'z':  # берём лучшее качество
+                                        if size['type'] == 'r':  # берём лучшее качество
                                             post_photos.append(size['url'])
-                                            # post_photo = size['url']
 
                             #  проверка есть ли прикрепленные документы
                             elif attachment['type'] == 'doc':
@@ -124,14 +158,11 @@ def get_wall_posts(group_name):
                                 video_post_id = attachment['video']['id']
                                 video_owner_id = attachment['video']['owner_id']
 
-                                video_get_url = f'https://api.vk.com/method/video.get?videos={video_owner_id}_{video_post_id}_{video_access_key}&access_token={token}&v=5.137'
+                                video_get_url = f'https://api.vk.com/method/video.get?videos={video_owner_id}_{video_post_id}_{video_access_key}&access_token={TOKEN}&v=5.137'
                                 req = requests.get(video_get_url)
                                 res = req.json()
                                 video_title = res['response']['items'][0]['title']
                                 videos.append(video_title)
-                                video_date = res['response']['items'][0]['date']
-                                video_date = datetime.fromtimestamp(video_date)
-                                videos.append(video_date)
                                 video_url = res['response']['items'][0]['player']
                                 videos.append(video_url)
 
@@ -141,6 +172,9 @@ def get_wall_posts(group_name):
                                         'height']):
                                         video_presplash = item['url']
                                         videos.append(video_presplash)
+                                    elif (item['width']) == 720:
+                                        video_presplash = item['url']
+                                        post_photos.append(video_presplash)
                         # print("Photos:", post_photos)
                         # print("Docs:", docs)
                         # print("Links:", links)
@@ -149,7 +183,7 @@ def get_wall_posts(group_name):
                     table_data = (supabase.table("vkvvguposts")
                                   .insert(
                         {"created_at": f"{post_date}",
-                         "title": f"{post_text}",
+                         "title": f"{post_title}",
                          "text": f"{post_text}",
                          "image": f"{post_photos}",
                          "docs": f"{docs}",
@@ -164,7 +198,9 @@ def get_wall_posts(group_name):
                 else:
                     if 'text' in post:  # проверка есть ли текст в посте
                         post_text = post['text']
+                        post_title = giga(post_text, PATH, CREDENTIALS)
                         # print("Post text:", post_text)
+                        # print("Post Title:", post_title)
                     # если это не репост другого поста
                     if 'attachments' in post:  # проверка есть ли какие-либо прикреплённые файлы
                         for attachment in post['attachments']:
@@ -172,15 +208,13 @@ def get_wall_posts(group_name):
                                 if len(attachment) == 1:  # проверяем если одно фото
                                     sizes = attachment[0]['photo']['sizes']
                                     for size in sizes:
-                                        if size['type'] == 'z':  # берём лучшее качество
+                                        if size['type'] == 'r':  # берём лучшее качество
                                             post_photos.append(size['url'])
-                                            # post_photo = size['url']
                                 else:  # если несколько фото
                                     sizes = attachment['photo']['sizes']
                                     for size in sizes:
-                                        if size['type'] == 'z':  # берём лучшее качество
+                                        if size['type'] == 'r':  # берём лучшее качество
                                             post_photos.append(size['url'])
-                                            # post_photo = size['url']
 
                             #  проверка есть ли прикреплённые ссылки
                             elif attachment['type'] == 'doc':
@@ -211,22 +245,23 @@ def get_wall_posts(group_name):
                                 video_post_id = attachment['video']['id']
                                 video_owner_id = attachment['video']['owner_id']
 
-                                video_get_url = f'https://api.vk.com/method/video.get?videos={video_owner_id}_{video_post_id}_{video_access_key}&access_token={token}&v=5.137'
+                                video_get_url = f'https://api.vk.com/method/video.get?videos={video_owner_id}_{video_post_id}_{video_access_key}&access_token={TOKEN}&v=5.137'
                                 req = requests.get(video_get_url)
                                 res = req.json()
                                 video_title = res['response']['items'][0]['title']
                                 videos.append(video_title)
-                                video_date = res['response']['items'][0]['date']
-                                video_date = datetime.fromtimestamp(video_date)
-                                videos.append(video_date)
                                 video_url = res['response']['items'][0]['player']
                                 videos.append(video_url)
 
                                 for item in res['response']['items'][0]['image']:
                                     if (item['width'] and item['height']) == (
-                                            res['response']['items'][0]['width'] and res['response']['items'][0]['height']):
+                                            res['response']['items'][0]['width'] and res['response']['items'][0][
+                                        'height']):
                                         video_presplash = item['url']
                                         videos.append(video_presplash)
+                                    elif (item['width']) == 720:
+                                        video_presplash = item['url']
+                                        post_photos.append(video_presplash)
                         # print("Photos:", post_photos)
                         # print("Docs:", docs)
                         # print("Links:", links)
@@ -235,7 +270,7 @@ def get_wall_posts(group_name):
                     table_data = (supabase.table("vkvvguposts")
                                   .insert(
                         {"created_at": f"{post_date}",
-                         "title": f"{post_text}",
+                         "title": f"{post_title}",
                          "text": f"{post_text}",
                          "image": f"{post_photos}",
                          "docs": f"{docs}",
@@ -264,6 +299,7 @@ def get_wall_posts(group_name):
             print(f'Дата поста {post_date}\n')
 
             post_text = None
+            post_title = None
             post_photos = []
             docs = []
             links = []
@@ -277,7 +313,9 @@ def get_wall_posts(group_name):
                     # проверка есть ли текст в посте
                     if 'text' in repost:
                         post_text = repost['text']
+                        post_title = giga(post_text, PATH, CREDENTIALS)
                         # print("Post text:", post_text)
+                        # print("Post Title:", post_title)
 
                     #  проверка есть ли прикрепленные файлы в том посте
                     if 'attachments' in repost:
@@ -286,15 +324,13 @@ def get_wall_posts(group_name):
                                 if len(attachment) == 1:
                                     sizes = attachment[0]['photo']['sizes']
                                     for size in sizes:
-                                        if size['type'] == 'z':  # берём лучшее качество
+                                        if size['type'] == 'r':  # берём лучшее качество
                                             post_photos.append(size['url'])
-                                            # post_photo = size['url']
                                 else:
                                     sizes = attachment['photo']['sizes']
                                     for size in sizes:
-                                        if size['type'] == 'z':  # берём лучшее качество
+                                        if size['type'] == 'r':  # берём лучшее качество
                                             post_photos.append(size['url'])
-                                            # post_photo = size['url']
 
                             #  проверка есть ли прикрепленные документы
                             elif attachment['type'] == 'doc':
@@ -325,14 +361,11 @@ def get_wall_posts(group_name):
                                 video_post_id = attachment['video']['id']
                                 video_owner_id = attachment['video']['owner_id']
 
-                                video_get_url = f'https://api.vk.com/method/video.get?videos={video_owner_id}_{video_post_id}_{video_access_key}&access_token={token}&v=5.137'
+                                video_get_url = f'https://api.vk.com/method/video.get?videos={video_owner_id}_{video_post_id}_{video_access_key}&access_token={TOKEN}&v=5.137'
                                 req = requests.get(video_get_url)
                                 res = req.json()
                                 video_title = res['response']['items'][0]['title']
                                 videos.append(video_title)
-                                video_date = res['response']['items'][0]['date']
-                                video_date = datetime.fromtimestamp(video_date)
-                                videos.append(video_date)
                                 video_url = res['response']['items'][0]['player']
                                 videos.append(video_url)
 
@@ -342,6 +375,9 @@ def get_wall_posts(group_name):
                                         'height']):
                                         video_presplash = item['url']
                                         videos.append(video_presplash)
+                                    elif (item['width']) == 720:
+                                        video_presplash = item['url']
+                                        post_photos.append(video_presplash)
                         # print("Photos:", post_photos)
                         # print("Docs:", docs)
                         # print("Links:", links)
@@ -350,7 +386,7 @@ def get_wall_posts(group_name):
                     table_data = (supabase.table("vkvvguposts")
                                   .insert(
                         {"created_at": f"{post_date}",
-                         "title": f"{post_text}",
+                         "title": f"{post_title}",
                          "text": f"{post_text}",
                          "image": f"{post_photos}",
                          "docs": f"{docs}",
@@ -365,7 +401,9 @@ def get_wall_posts(group_name):
                 else:
                     if 'text' in post:  # проверка есть ли текст в посте
                         post_text = post['text']
+                        post_title = giga(post_text, PATH, CREDENTIALS)
                         # print("Post text:", post_text)
+                        # print("Post Title:", post_title)
                     # если это не репост другого поста
                     if 'attachments' in post:  # проверка есть ли какие-либо прикреплённые файлы
                         for attachment in post['attachments']:
@@ -373,15 +411,13 @@ def get_wall_posts(group_name):
                                 if len(attachment) == 1:  # проверяем если одно фото
                                     sizes = attachment[0]['photo']['sizes']
                                     for size in sizes:
-                                        if size['type'] == 'z':  # берём лучшее качество
+                                        if size['type'] == 'r':  # берём лучшее качество
                                             post_photos.append(size['url'])
-                                            # post_photo = size['url']
                                 else:  # если несколько фото
                                     sizes = attachment['photo']['sizes']
                                     for size in sizes:
-                                        if size['type'] == 'z':  # берём лучшее качество
+                                        if size['type'] == 'r':  # берём лучшее качество
                                             post_photos.append(size['url'])
-                                            # post_photo = size['url']
 
                             #  проверка есть ли прикреплённые ссылки
                             elif attachment['type'] == 'doc':
@@ -412,41 +448,42 @@ def get_wall_posts(group_name):
                                 video_post_id = attachment['video']['id']
                                 video_owner_id = attachment['video']['owner_id']
 
-                                video_get_url = f'https://api.vk.com/method/video.get?videos={video_owner_id}_{video_post_id}_{video_access_key}&access_token={token}&v=5.137'
+                                video_get_url = f'https://api.vk.com/method/video.get?videos={video_owner_id}_{video_post_id}_{video_access_key}&access_token={TOKEN}&v=5.137'
                                 req = requests.get(video_get_url)
                                 res = req.json()
                                 video_title = res['response']['items'][0]['title']
                                 videos.append(video_title)
-                                video_date = res['response']['items'][0]['date']
-                                video_date = datetime.fromtimestamp(video_date)
-                                videos.append(video_date)
                                 video_url = res['response']['items'][0]['player']
                                 videos.append(video_url)
 
                                 for item in res['response']['items'][0]['image']:
                                     if (item['width'] and item['height']) == (
-                                            res['response']['items'][0]['width'] and res['response']['items'][0]['height']):
+                                            res['response']['items'][0]['width'] and res['response']['items'][0][
+                                        'height']):
                                         video_presplash = item['url']
                                         videos.append(video_presplash)
+                                    elif (item['width']) == 720:
+                                        video_presplash = item['url']
+                                        post_photos.append(video_presplash)
                         # print("Photos:", post_photos)
                         # print("Docs:", docs)
                         # print("Links:", links)
                         # print("Audios:", audios)
                         # print("Videos:", videos)
-                    table_data = (supabase.table("vkvvguposts")
-                                  .insert(
-                        {"created_at": f"{post_date}",
-                         "title": f"{post_text}",
-                         "text": f"{post_text}",
-                         "image": f"{post_photos}",
-                         "docs": f"{docs}",
-                         "links": f"{links}",
-                         "audios": f"{audios}",
-                         "videos": f"{videos}",
-                         }
-                    )
-                                  .execute())
-                    assert len(table_data.data) > 0
+                        table_data = (supabase.table("vkvvguposts")
+                                      .insert(
+                            {"created_at": f"{post_date}",
+                             "title": f"{post_title}",
+                             "text": f"{post_text}",
+                             "image": f"{post_photos}",
+                             "docs": f"{docs}",
+                             "links": f"{links}",
+                             "audios": f"{audios}",
+                             "videos": f"{videos}",
+                             }
+                        )
+                                      .execute())
+                        assert len(table_data.data) > 0
             except Exception:
                 print('Что-то пошло не так.')
 
